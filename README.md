@@ -4,7 +4,7 @@ Editor PDF **open source, multiplataforma y 100% offline** — Windows · macOS 
 
 Alternativa libre a los editores comerciales (PDFelement, Acrobat): edición real de texto e imágenes sobre el PDF, anotaciones, organización de páginas, **conversión de formatos (PDF ↔ Word/Excel/PPT/imágenes)**, OCR, formularios interactivos, protección, redacción y firmas digitales — sin capa de IA, sin nube obligatoria y sin suscripciones.
 
-> 📋 **Estado:** fase de definición y planificación (pre-desarrollo). El plan maestro vivirá en `docs/PLAN.md`.
+> 📋 **Estado:** planificación cerrada, pre-desarrollo (M0 pendiente). Plan maestro completo en [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Stack
 
@@ -12,7 +12,8 @@ Alternativa libre a los editores comerciales (PDFelement, Acrobat): edición rea
 |---|---|
 | Núcleo / backend | Rust (Tauri 2) |
 | Motor de renderizado PDF | PDFium (vía `pdfium-render`) |
-| Interfaz | Frontend web embebido (WebView nativa) |
+| Interfaz | React + TypeScript (WebView nativa, UI en español) |
+| OCR | Tesseract + Leptonica nativos (sin nube) |
 | Plataformas | Windows, macOS, Linux y Android desde el día 1 |
 
 ## Principios
@@ -24,4 +25,4 @@ Alternativa libre a los editores comerciales (PDFelement, Acrobat): edición rea
 
 ## Licencia
 
-Por definir (en breve).
+[GPL-3.0](LICENSE) — cualquier fork o derivado distribuido debe permanecer open source. Las dependencias de terceros y sus licencias se documentan en [`THIRD_PARTY.md`](THIRD_PARTY.md).
