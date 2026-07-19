@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF SHARD — En desarrollo</title>
+<meta name="description" content="PDF SHARD: editor PDF open source, multiplataforma y 100% offline. Sin IA, sin nube, sin suscripciones. En desarrollo.">
+<meta property="og:title" content="PDF SHARD">
+<meta property="og:description" content="Editor PDF open source, multiplataforma y 100% offline. En desarrollo.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 27,10 22,30 10,30 5,10' fill='%234fd1c5'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0b0e14; --bg2:#111826; --card:#141c2b;
+    --text:#e8eef7; --muted:#93a1b8;
+    --accent:#4fd1c5; --accent2:#7aa2f7;
+    --line:#22304a;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f5f8fc; --bg2:#e9eff7; --card:#ffffff;
+      --text:#101828; --muted:#51607a;
+      --accent:#0d9488; --accent2:#3b6fd4;
+      --line:#d7e0ee;
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+    color:var(--text);
+    background:radial-gradient(1100px 600px at 70% -10%, var(--bg2), transparent 60%), var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh; padding:2rem 1.25rem; text-align:center; gap:1.4rem;
+  }
+  .shard{width:96px;height:96px;filter:drop-shadow(0 6px 24px rgba(79,209,197,.35))}
+  h1{
+    font-size:clamp(2.4rem,7vw,4rem); letter-spacing:.12em; font-weight:800;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .badge{
+    display:inline-flex; align-items:center; gap:.5rem;
+    border:1px solid var(--line); border-radius:999px;
+    padding:.45rem 1.1rem; font-size:.95rem; color:var(--muted);
+    background:color-mix(in srgb, var(--card) 70%, transparent);
+  }
+  .dot{width:.55rem;height:.55rem;border-radius:50%;background:var(--accent);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  .tag{font-size:clamp(1rem,2.6vw,1.2rem); color:var(--muted); max-width:34rem; line-height:1.6}
+  .features{
+    display:flex; flex-wrap:wrap; justify-content:center; gap:.5rem; max-width:40rem;
+  }
+  .features span{
+    font-size:.85rem; color:var(--muted);
+    border:1px solid var(--line); border-radius:.5rem; padding:.3rem .7rem;
+    background:color-mix(in srgb, var(--card) 55%, transparent);
+  }
+  .cta{
+    display:inline-block; margin-top:.4rem; text-decoration:none; font-weight:600;
+    color:var(--bg); background:linear-gradient(90deg,var(--accent),var(--accent2));
+    padding:.8rem 1.6rem; border-radius:.7rem; transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .cta:hover{transform:translateY(-2px); box-shadow:0 8px 26px rgba(79,209,197,.35)}
+  footer{margin-top:1.6rem; font-size:.85rem; color:var(--muted)}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+  <svg class="shard" viewBox="0 0 100 100" aria-hidden="true">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#4fd1c5"/><stop offset="1" stop-color="#7aa2f7"/>
+      </linearGradient>
+    </defs>
+    <polygon points="50,4 84,28 70,96 30,96 16,28" fill="none" stroke="url(#g)" stroke-width="4" stroke-linejoin="round"/>
+    <polyline points="16,28 50,40 84,28" fill="none" stroke="url(#g)" stroke-width="2.5" opacity=".7"/>
+    <line x1="50" y1="40" x2="50" y2="96" stroke="url(#g)" stroke-width="2.5" opacity=".7"/>
+  </svg>
+
+  <h1>PDF SHARD</h1>
+
+  <span class="badge"><span class="dot"></span>&nbsp;En desarrollo</span>
+
+  <p class="tag">
+    Editor PDF <strong>open source</strong>, multiplataforma y <strong>100% offline</strong>.
+    Edición real de texto, OCR, formularios, conversión y firmas digitales —
+    sin IA, sin nube y sin suscripciones.
+  </p>
+
+  <div class="features">
+    <span>Windows</span><span>macOS</span><span>Linux</span><span>Android</span>
+    <span>GPL-3.0</span><span>Motor PDFium</span><span>Rust + Tauri</span>
+  </div>
+
+  <a class="cta" href="https://github.com/camilo-ojedav/pdf-shard">Seguir el desarrollo en GitHub</a>
+
+  <footer>
+    © 2026 PDF SHARD · <a href="https://github.com/camilo-ojedav/pdf-shard/blob/main/LICENSE">Licencia GPL-3.0</a>
+  </footer>
+</body>
+</html>
