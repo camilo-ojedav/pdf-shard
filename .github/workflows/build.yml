@@ -1,0 +1,103 @@
+name: Build multiplataforma
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    name: ${{ matrix.nombre }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nombre: Windows
+            pdfium: win-x64
+          - os: macos-latest
+            nombre: macOS
+            pdfium: mac-arm64
+          - os: ubuntu-latest
+            nombre: Linux
+            pdfium: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias de sistema (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+      - name: Instalar dependencias npm
+        run: |
+          npm ci
+          npm ci --prefix ui
+        shell: bash
+      - name: PDFium (${{ matrix.pdfium }})
+        run: bash scripts/fetch-pdfium.sh ${{ matrix.pdfium }}
+        shell: bash
+      - name: Compilar bundles
+        working-directory: apps/shard
+        run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf-shard-${{ matrix.pdfium }}
+          path: target/release/bundle/**
+          if-no-files-found: error
+
+  android:
+    name: Android (experimental)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      NDK_VERSION: 27.2.12479018
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Instalar NDK y plataformas
+        run: sdkmanager "ndk;${{ env.NDK_VERSION }}" "platforms;android-34" "build-tools;34.0.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - name: Instalar dependencias npm
+        run: |
+          npm ci
+          npm ci --prefix ui
+      - name: PDFium (android-arm64)
+        run: bash scripts/fetch-pdfium.sh android-arm64
+      - name: Inicializar proyecto Android
+        working-directory: apps/shard
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+        run: npx tauri android init
+      - name: Compilar APK (arm64)
+        working-directory: apps/shard
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+        run: npx tauri android build --apk --target aarch64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf-shard-android-apk
+          path: apps/shard/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn

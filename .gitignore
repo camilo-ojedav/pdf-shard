@@ -24,5 +24,11 @@ local.properties
 Thumbs.db
 *.log
 
+# Binarios de PDFium (se descargan con scripts/fetch-pdfium, hash en pdfium.lock)
+vendor/pdfium/
+
+# Salidas de verificación local
+target/render-check.png
+
 # Corpus privado de PDFs de prueba (nunca al repo público)
 corpus-privado/

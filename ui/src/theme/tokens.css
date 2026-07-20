@@ -1,0 +1,134 @@
+/* Design tokens de PDF SHARD — tema claro y oscuro desde M0 (PLAN.md §2 defaults). */
+
+:root {
+  --bg: #f5f8fc;
+  --surface: #ffffff;
+  --text: #101828;
+  --muted: #51607a;
+  --line: #d7e0ee;
+  --accent: #0d9488;
+  --accent-2: #3b6fd4;
+  --error: #b42318;
+  --canvas-bg: #e3e9f2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0e14;
+    --surface: #141c2b;
+    --text: #e8eef7;
+    --muted: #93a1b8;
+    --line: #22304a;
+    --accent: #4fd1c5;
+    --accent-2: #7aa2f7;
+    --error: #f97066;
+    --canvas-bg: #10151f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-right: 0.5rem;
+}
+
+.toolbar button {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  min-width: 2.4rem;
+}
+
+.toolbar button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sep {
+  width: 1px;
+  height: 1.4rem;
+  background: var(--line);
+  margin: 0 0.25rem;
+}
+
+.page-indicator {
+  color: var(--muted);
+  font-size: 0.9rem;
+  min-width: 3.5rem;
+  text-align: center;
+}
+
+.canvas-area {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  /* fondo tipo mesa de trabajo del visor */
+  background: var(--canvas-bg);
+  padding: 1.5rem;
+}
+
+.page {
+  max-width: none;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  background: white;
+}
+
+.empty,
+.error {
+  align-self: center;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.error {
+  color: var(--error);
+}

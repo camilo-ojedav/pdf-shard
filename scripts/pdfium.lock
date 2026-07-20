@@ -1,0 +1,10 @@
+{
+  "tag": "chromium/7947",
+  "sha256": {
+    "win-x64": "75df6802fc090ad7c76ccc29ed80c3fcb1a375c775bbf8e522189174647b101f",
+    "mac-arm64": "aa9739354fc7bc8f200f3f3c9532bd5233298203051e094820272ccd9c997a77",
+    "mac-x64": "16d7a263b9e2f550d230ce81637697381b0ce898f2e3a22c7316594b15199d87",
+    "linux-x64": "f73d69d309fe1f33cc7269dcc99be31ec44e1cf608e31d7e2fcc6545fc2f9323",
+    "android-arm64": "de11fa5d07d0dbba2fe38af70ac0bc41eaaa961fec857c9f2a745fa611c81e3a"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "pdf-shard",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Editor PDF open source, multiplataforma y 100% offline",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
