@@ -17,18 +17,18 @@ fn main() {
             .unwrap_or_else(|| "target/render-check.png".to_string()),
     );
 
-    let renderer = match Renderer::new(None) {
+    let mut renderer = match Renderer::new(None) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("ERROR creando renderer: {e}");
             std::process::exit(1);
         }
     };
-    let pages = renderer.page_count(&pdf).unwrap_or_else(|e| {
+    let (key, pages) = renderer.open(&pdf, None).unwrap_or_else(|e| {
         eprintln!("ERROR abriendo {}: {e}", pdf.display());
         std::process::exit(1);
     });
-    let png = renderer.render_page_png(&pdf, 0, 1200).unwrap_or_else(|e| {
+    let png = renderer.render_page_png(key, 0, 1200).unwrap_or_else(|e| {
         eprintln!("ERROR renderizando: {e}");
         std::process::exit(1);
     });
