@@ -10,10 +10,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 LOCK="$SCRIPT_DIR/pdfium.lock"
 
-TAG=$(python3 -c "import json;print(json.load(open('$LOCK'))['tag'])" 2>/dev/null \
-  || node -e "console.log(require('$LOCK').tag)")
-EXPECTED=$(python3 -c "import json;print(json.load(open('$LOCK'))['sha256'].get('$TARGET',''))" 2>/dev/null \
-  || node -e "console.log(require('$LOCK').sha256['$TARGET']||'')")
+# Se lee el lock por stdin (no pasando la ruta como argumento) para que
+# funcione igual en Linux/macOS y en Git Bash de Windows: ahí `pwd` da una
+# ruta estilo POSIX (/d/a/...) que ni `node -e "require('$LOCK')"` ni una
+# ruta de archivo de Python resuelven correctamente (comprobado en CI:
+# "Cannot find module '/d/a/.../pdfium.lock'"); bash sí puede abrir esa
+# ruta para redirección sin problema.
+TAG=$(python3 -c "import json,sys;print(json.load(sys.stdin)['tag'])" <"$LOCK" 2>/dev/null \
+  || node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).tag)" <"$LOCK")
+EXPECTED=$(python3 -c "import json,sys;print(json.load(sys.stdin)['sha256'].get('$TARGET',''))" <"$LOCK" 2>/dev/null \
+  || node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).sha256['$TARGET']||'')" <"$LOCK")
 
 ASSET="pdfium-$TARGET.tgz"
 URL="https://github.com/bblanchon/pdfium-binaries/releases/download/$TAG/$ASSET"
