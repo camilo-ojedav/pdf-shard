@@ -2,7 +2,7 @@
 
 > Editor PDF open source, multiplataforma y 100% offline con paridad funcional con Wondershare PDFelement 12, **sin funciones de IA**.
 > Documento vivo: se actualiza al cierre (E3) de cada milestone.
-> Última actualización: 2026-07-19.
+> Última actualización: 2026-07-20.
 
 ---
 
@@ -44,6 +44,8 @@ Todas las decisiones fueron tomadas por Camilo el 2026-07-19. Cambiarlas requier
 | D18 | Escáner físico | En el milestone de OCR: WIA/TWAIN en desktop, cámara con deskew en Android |
 | D19 | Cadencia | Sin fechas; orden y criterios de cierre por milestone |
 | D20 | Nombre repo | `pdf-shard` (carpeta local `C:\Users\camilo\PDF_SHARD`) |
+| D21 | Impresión Android (E1-M1) | Diferida a M10 (Android Print Framework); M1 imprime solo desktop, invocando el diálogo/impresora nativa por SO (PowerShell `Start-Process -Verb Print` en Windows, `osascript`/Finder en macOS, `lp`/CUPS sin diálogo previo en Linux — brecha declarada) |
+| D22 | Modos de página (E1-M1) | Solo scroll continuo en M1; página única y doble página quedan para M9 (son variantes de layout de la misma lista virtual, sin retrabajo) |
 
 **Defaults técnicos adoptados** (revisables en el E1 del milestone que los toque):
 
@@ -236,7 +238,7 @@ Sin fechas (D19). Cada uno se ejecuta con el flujo **E1 → aprobación de Camil
 | M | Alcance | Criterio de cierre (además de CI verde en las 4 plataformas) |
 |---|---|---|
 | **M0 Fundaciones** | Monorepo, Tauri 2 + React + Vite + Zustand, pdfium-render con binarios de las 4 plataformas, render de la primera página, CI matrix, LICENSE/THIRD_PARTY/CONTRIBUTING, corpus inicial, design tokens | Un PDF del corpus se abre y se ve en Windows, macOS, Linux y un APK Android instalable |
-| **M1 Visor** | §6.1 completo + pestañas, recientes, atajos, tema oscuro, UI táctil base Android | Uso diario como visor es viable; búsqueda y copia correctas sobre el corpus |
+| **M1 Visor** ✅ | §6.1 completo + pestañas, recientes, atajos, tema oscuro, UI táctil base Android | Uso diario como visor es viable; búsqueda y copia correctas sobre el corpus — **cerrado**: apertura con contraseña, scroll continuo virtualizado (±2 páginas), zoom fijo/ajustar-ancho/ajustar-página, outline y miniaturas, búsqueda de texto con resaltado y navegación, selección de texto por arrastre con copia (Ctrl+C y botón), pestañas multi-documento, recientes persistidos, atajos de teclado, tema oscuro con toggle manual, impresión desktop (D21), tamaños de touch target para Android. CI verde (fmt+clippy+test Rust, lint+test+build UI). Diferido: impresión Android (D21→M10), modos página única/doble (D22→M9), pool de workers PDFium concurrente con LRU real (§5.3 — M1 usa un hilo dedicado con caché FIFO acotado, suficiente para el criterio de cierre). QA manual pendiente: verificación visual/táctil real en Android y de los caminos de impresión en macOS/Linux (no pude probarlos desde este entorno Windows) |
 | **M2 Anotaciones** | §6.2 completo | Anotaciones creadas se ven bien en Acrobat/Chrome; XFDF round-trip sin pérdida |
 | **M3 Páginas y documento** | §6.3 completo | Salidas pasan `qpdf --check`; compresión reduce ≥40% en corpus de escaneados sin artefactos visibles |
 | **M4 Edición** | §6.4 en subfases 4a→4b→4c | Criterio duro de §6.4 sobre el corpus completo |
