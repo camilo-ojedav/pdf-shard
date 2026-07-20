@@ -46,6 +46,9 @@ Todas las decisiones fueron tomadas por Camilo el 2026-07-19. Cambiarlas requier
 | D20 | Nombre repo | `pdf-shard` (carpeta local `C:\Users\camilo\PDF_SHARD`) |
 | D21 | Impresión Android (E1-M1) | Diferida a M10 (Android Print Framework); M1 imprime solo desktop, invocando el diálogo/impresora nativa por SO (PowerShell `Start-Process -Verb Print` en Windows, `osascript`/Finder en macOS, `lp`/CUPS sin diálogo previo en Linux — brecha declarada) |
 | D22 | Modos de página (E1-M1) | Solo scroll continuo en M1; página única y doble página quedan para M9 (son variantes de layout de la misma lista virtual, sin retrabajo) |
+| D23 | Milestone Web — arquitectura | 100% client-side vía PDFium compilado a WASM (`pdfium-render` ya tiene binding WASM real, con ejemplo oficial upstream); se descartó server-side rendering para no romper el "100% offline" ni exigir un backend vivo para autohostear |
+| D24 | Milestone Web — alcance de la alpha | Mínimo: abrir + ver (scroll/zoom). Buscar/seleccionar/marcadores/contraseña/recientes quedan para después de la alpha inicial |
+| D25 | Milestone Web — ubicación en el repo | `apps/web/` (espejo de `apps/shard/`), reusando `ui/` como frontend compartido con un `lib/web.ts` nuevo en vez de `lib/tauri.ts` |
 
 **Defaults técnicos adoptados** (revisables en el E1 del milestone que los toque):
 
@@ -248,6 +251,7 @@ Sin fechas (D19). Cada uno se ejecuta con el flujo **E1 → aprobación de Camil
 | **M8 Protección y firmas** | §6.8 + §6.9 | Firma verificable en Adobe Reader (con TSA válida); texto redactado irrecuperable (verificación automática + extracción externa) |
 | **M9 Paridad desktop** | §6.10 + plantillas, updater (tauri-plugin-updater), pulido de rendimiento, instaladores release | Checklist de paridad §4 completo en desktop; release v0.9 pública con instaladores |
 | **M10 Android paridad** | Adaptación táctil de edición/formularios/firmas, cámara-escáner pulida, APK firmado en Releases, motor de conversión propio en Android si maduró | Checklist §4 columna Android completo (con sus ◐ declarados); release v1.0 |
+| **M-Web** (pista paralela, no numerada en 0.N.x) | Alpha mínima: abrir PDF local, ver con scroll/zoom, 100% client-side (PDFium compilado a WASM vía `pdfium-render`, sin backend — el PDF no sale del navegador). Reusa `ui/` como frontend; vive en `apps/web/`. Deployable en la VPS (`pdf.shard.icu/web_version` o subdominio, a definir en su E1) y autohosteable por cualquiera sirviendo archivos estáticos. Fuera de esta alpha: buscar, seleccionar/copiar, marcadores/miniaturas, contraseña, recientes (quedan para iterar después de la alpha) | Un PDF se abre y se navega (scroll+zoom) enteramente en el navegador, sin ningún proceso servidor de por medio |
 
 **Backlog post-v1**: iOS (D14), Google Play/F-Droid, certificados de firma desktop (D15), LTV/B-LTA, export PDF/A, accesibilidad/etiquetado, i18n inglés, `esign-gateway` real.
 
