@@ -10,8 +10,8 @@ use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use core_model::{
-    DocumentInfo, OpenError, OpenErrorKind, OutlineNode, PageSize, RecentEntry, RectPt, SearchHit,
-    SearchResults, TextSelection,
+    Annotation, AnnotationKind, DocumentInfo, OpenError, OpenErrorKind, OutlineNode, PageSize,
+    RecentEntry, RectPt, SearchHit, SearchResults, TextSelection,
 };
 use core_render::{RenderError, Renderer};
 use tauri::http::{header::CONTENT_TYPE, Response, StatusCode};
@@ -118,6 +118,44 @@ fn convert_search_results(r: core_render::SearchResults) -> SearchResults {
             .collect(),
         truncated: r.truncated,
     }
+
+    fn convert_annotation_kind(kind: AnnotationKind) -> core_render::AnnotationKind {
+        match kind {
+            AnnotationKind::Highlight => core_render::AnnotationKind::Highlight,
+            AnnotationKind::Underline => core_render::AnnotationKind::Underline,
+            AnnotationKind::Strikeout => core_render::AnnotationKind::Strikeout,
+            AnnotationKind::Squiggly => core_render::AnnotationKind::Squiggly,
+            AnnotationKind::Text => core_render::AnnotationKind::Text,
+        }
+    }
+
+    fn convert_annotations(items: Vec<core_render::Annotation>) -> Vec<Annotation> {
+        items
+            .into_iter()
+            .map(|a| Annotation {
+                id: a.id,
+                page_index: a.page_index,
+                kind: match a.kind {
+                    core_render::AnnotationKind::Highlight => AnnotationKind::Highlight,
+                    core_render::AnnotationKind::Underline => AnnotationKind::Underline,
+                    core_render::AnnotationKind::Strikeout => AnnotationKind::Strikeout,
+                    core_render::AnnotationKind::Squiggly => AnnotationKind::Squiggly,
+                    core_render::AnnotationKind::Text => AnnotationKind::Text,
+                },
+                rects: a
+                    .rects
+                    .into_iter()
+                    .map(|r| RectPt {
+                        left: r.left,
+                        top: r.top,
+                        right: r.right,
+                        bottom: r.bottom,
+                    })
+                    .collect(),
+                contents: a.contents,
+            })
+            .collect()
+    }
 }
 
 #[tauri::command]
@@ -212,6 +250,94 @@ fn select_text(
                 rects: s.rects.into_iter().map(convert_rect).collect(),
             })
         })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_annotations(id: u32, state: tauri::State<'_, AppState>) -> Result<Vec<Annotation>, String> {
+    state
+        .render
+        .call(move |r| r.list_annotations(id))
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_annotation(
+    id: u32,
+    page_index: u16,
+    kind: AnnotationKind,
+    rects: Vec<RectPt>,
+    contents: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Annotation>, String> {
+    state
+        .render
+        .call(move |r| {
+            r.create_annotation(
+                id,
+                page_index,
+                convert_annotation_kind(kind),
+                rects
+                    .into_iter()
+                    .map(|x| core_render::RectPt {
+                        left: x.left,
+                        top: x.top,
+                        right: x.right,
+                        bottom: x.bottom,
+                    })
+                    .collect(),
+                contents,
+            )?;
+            r.list_annotations(id)
+        })
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_annotation(
+    id: u32,
+    annotation_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Annotation>, String> {
+    state
+        .render
+        .call(move |r| {
+            r.delete_annotation(id, &annotation_id)?;
+            r.list_annotations(id)
+        })
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn export_annotations_xfdf(
+    id: u32,
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let output = PathBuf::from(path);
+    state
+        .render
+        .call(move |r| r.export_annotations_xfdf(id, &output))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn import_annotations_xfdf(
+    id: u32,
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Annotation>, String> {
+    let input = PathBuf::from(path);
+    state
+        .render
+        .call(move |r| {
+            r.import_annotations_xfdf(id, &input)?;
+            r.list_annotations(id)
+        })
+        .map(convert_annotations)
         .map_err(|e| e.to_string())
 }
 
@@ -412,6 +538,11 @@ pub fn run() {
             get_outline,
             search_text,
             select_text,
+            list_annotations,
+            create_annotation,
+            delete_annotation,
+            export_annotations_xfdf,
+            import_annotations_xfdf,
             get_recent_documents,
             clear_recent_documents,
             print_document,

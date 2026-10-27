@@ -9,6 +9,7 @@ repository.workspace = true
 pdfium-render = { version = "0.8", features = ["image"] }
 image = "0.25"
 thiserror.workspace = true
+quick-xml = "0.38"
 
 [dev-dependencies]
 serde_json.workspace = true

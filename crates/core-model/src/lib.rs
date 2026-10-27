@@ -89,6 +89,28 @@ pub struct TextSelection {
     pub rects: Vec<RectPt>,
 }
 
+/// Tipos de anotación soportados por M2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnnotationKind {
+    Highlight,
+    Underline,
+    Strikeout,
+    Squiggly,
+    Text,
+}
+
+/// Anotación serializable para UI/IPC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Annotation {
+    /// Identificador estable dentro del documento abierto.
+    pub id: String,
+    pub page_index: u16,
+    pub kind: AnnotationKind,
+    pub rects: Vec<RectPt>,
+    pub contents: Option<String>,
+}
+
 /// Una entrada de la lista de documentos recientes, persistida entre
 /// sesiones (PLAN.md §6.1 / milestone M1: "recientes").
 #[derive(Debug, Clone, Serialize, Deserialize)]

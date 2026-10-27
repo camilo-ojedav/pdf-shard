@@ -61,6 +61,16 @@ export interface TextSelectionResult {
   rects: RectPt[];
 }
 
+export type AnnotationKind = "highlight" | "underline" | "strikeout" | "squiggly" | "text";
+
+export interface Annotation {
+  id: string;
+  page_index: number;
+  kind: AnnotationKind;
+  rects: RectPt[];
+  contents: string | null;
+}
+
 export interface RecentEntry {
   path: string;
   last_opened_unix_ms: number;
@@ -108,4 +118,36 @@ export function clearRecentDocuments(): Promise<void> {
 
 export function printDocument(path: string): Promise<void> {
   return invoke("print_document", { path });
+}
+
+export function listAnnotations(id: number): Promise<Annotation[]> {
+  return invoke<Annotation[]>("list_annotations", { id });
+}
+
+export function createAnnotation(
+  id: number,
+  pageIndex: number,
+  kind: AnnotationKind,
+  rects: RectPt[],
+  contents?: string,
+): Promise<Annotation[]> {
+  return invoke<Annotation[]>("create_annotation", {
+    id,
+    pageIndex,
+    kind,
+    rects,
+    contents: contents && contents.length > 0 ? contents : null,
+  });
+}
+
+export function deleteAnnotation(id: number, annotationId: string): Promise<Annotation[]> {
+  return invoke<Annotation[]>("delete_annotation", { id, annotationId });
+}
+
+export function exportAnnotationsXfdf(id: number, path: string): Promise<void> {
+  return invoke("export_annotations_xfdf", { id, path });
+}
+
+export function importAnnotationsXfdf(id: number, path: string): Promise<Annotation[]> {
+  return invoke<Annotation[]>("import_annotations_xfdf", { id, path });
 }

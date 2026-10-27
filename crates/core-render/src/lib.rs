@@ -4,10 +4,13 @@
 //! texto trabajan sobre el `PdfDocument` ya cargado.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use pdfium_render::prelude::*;
+use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer};
 
 /// Cantidad máxima de resultados de búsqueda que se acumulan por documento
 /// (protección ante documentos patológicos o coincidencias masivas).
@@ -84,6 +87,24 @@ pub struct TextSelection {
     pub page_index: u16,
     pub text: String,
     pub rects: Vec<RectPt>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationKind {
+    Highlight,
+    Underline,
+    Strikeout,
+    Squiggly,
+    Text,
+}
+
+#[derive(Debug, Clone)]
+pub struct Annotation {
+    pub id: String,
+    pub page_index: u16,
+    pub kind: AnnotationKind,
+    pub rects: Vec<RectPt>,
+    pub contents: Option<String>,
 }
 
 /// Subcarpeta de `vendor/pdfium/` que corresponde a la plataforma actual.
@@ -163,6 +184,56 @@ fn rect_top_left(r: PdfRect, page_height_pt: f32) -> RectPt {
         right: r.right().value,
         bottom: page_height_pt - r.bottom().value,
     }
+}
+
+fn rect_to_pdf(r: RectPt, page_height_pt: f32) -> PdfRect {
+    let top = page_height_pt - r.top;
+    let bottom = page_height_pt - r.bottom;
+    PdfRect::new_from_values(bottom, r.left, top, r.right)
+}
+
+fn rect_to_quad_points(r: RectPt, page_height_pt: f32) -> PdfQuadPoints {
+    let top = page_height_pt - r.top;
+    let bottom = page_height_pt - r.bottom;
+    PdfQuadPoints::new_from_values(
+        r.left, bottom, r.right, bottom, r.right, top, r.left, top,
+    )
+}
+
+fn quad_points_to_rect_top_left(points: PdfQuadPoints, page_height_pt: f32) -> RectPt {
+    RectPt {
+        left: points.left().value,
+        top: page_height_pt - points.top().value,
+        right: points.right().value,
+        bottom: page_height_pt - points.bottom().value,
+    }
+}
+
+fn merge_rects(rects: &[RectPt]) -> Option<RectPt> {
+    let first = *rects.first()?;
+    Some(rects.iter().skip(1).fold(first, |acc, r| RectPt {
+        left: acc.left.min(r.left),
+        top: acc.top.min(r.top),
+        right: acc.right.max(r.right),
+        bottom: acc.bottom.max(r.bottom),
+    }))
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+#[derive(Debug)]
+struct XfdfEntry {
+    kind: AnnotationKind,
+    page_index: u16,
+    rects: Vec<RectPt>,
+    contents: Option<String>,
 }
 
 /// Construye recursivamente un [OutlineNode] a partir de un [PdfBookmark],
@@ -254,9 +325,14 @@ impl TileCache {
 /// proceso termine, así que la fuga es intencional y acotada.
 pub struct Renderer {
     pdfium: &'static Pdfium,
-    docs: HashMap<u32, PdfDocument<'static>>,
+    docs: HashMap<u32, DocumentSession>,
     next_key: u32,
     tiles: TileCache,
+}
+
+struct DocumentSession {
+    path: PathBuf,
+    doc: PdfDocument<'static>,
 }
 
 impl Renderer {
@@ -298,7 +374,13 @@ impl Renderer {
         let page_count = doc.pages().len();
         let key = self.next_key;
         self.next_key += 1;
-        self.docs.insert(key, doc);
+        self.docs.insert(
+            key,
+            DocumentSession {
+                path: pdf.to_path_buf(),
+                doc,
+            },
+        );
         Ok((key, page_count))
     }
 
@@ -310,7 +392,14 @@ impl Renderer {
     }
 
     fn doc(&self, key: u32) -> Result<&PdfDocument<'static>, RenderError> {
-        self.docs.get(&key).ok_or(RenderError::UnknownDocument(key))
+        self.docs
+            .get(&key)
+            .map(|s| &s.doc)
+            .ok_or(RenderError::UnknownDocument(key))
+    }
+
+    fn doc_mut(&mut self, key: u32) -> Result<&mut DocumentSession, RenderError> {
+        self.docs.get_mut(&key).ok_or(RenderError::UnknownDocument(key))
     }
 
     /// Tamaño en puntos PDF de cada página, en orden. Se usa para reservar
@@ -471,6 +560,457 @@ impl Renderer {
             rects,
         }))
     }
+
+    pub fn list_annotations(&self, key: u32) -> Result<Vec<Annotation>, RenderError> {
+        let doc = self.doc(key)?;
+        let mut out = Vec::new();
+        for page_index in 0..doc.pages().len() {
+            let page = doc.pages().get(page_index).map_err(pdfium_err)?;
+            let page_height = page.height().value;
+            for (annotation_index, annotation) in page.annotations().iter().enumerate() {
+                let kind = match annotation.annotation_type() {
+                    PdfPageAnnotationType::Highlight => AnnotationKind::Highlight,
+                    PdfPageAnnotationType::Underline => AnnotationKind::Underline,
+                    PdfPageAnnotationType::Strikeout => AnnotationKind::Strikeout,
+                    PdfPageAnnotationType::Squiggly => AnnotationKind::Squiggly,
+                    PdfPageAnnotationType::Text => AnnotationKind::Text,
+                    _ => continue,
+                };
+
+                let mut rects = Vec::new();
+                if annotation.has_attachment_points() {
+                    rects.extend(
+                        annotation
+                            .attachment_points()
+                            .iter()
+                            .map(|p| quad_points_to_rect_top_left(p, page_height)),
+                    );
+                }
+                if rects.is_empty() {
+                    rects.push(rect_top_left(annotation.bounds().map_err(pdfium_err)?, page_height));
+                }
+
+                out.push(Annotation {
+                    id: format!("{page_index}:{annotation_index}"),
+                    page_index,
+                    kind,
+                    rects,
+                    contents: annotation.contents(),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn create_annotation(
+        &mut self,
+        key: u32,
+        page_index: u16,
+        kind: AnnotationKind,
+        rects: Vec<RectPt>,
+        contents: Option<String>,
+    ) -> Result<(), RenderError> {
+        let session = self.doc_mut(key)?;
+        let mut page = session.doc.pages_mut().get(page_index).map_err(pdfium_err)?;
+        let page_height = page.height().value;
+        let Some(union_rect) = merge_rects(&rects) else {
+            return Err(RenderError::Pdfium("anotación sin rectángulos".into()));
+        };
+        match kind {
+            AnnotationKind::Highlight => {
+                let mut annotation = page
+                    .annotations_mut()
+                    .create_highlight_annotation()
+                    .map_err(pdfium_err)?;
+                annotation
+                    .set_stroke_color(PdfColor::new(255, 214, 0, 255))
+                    .map_err(pdfium_err)?;
+                for rect in rects.iter().copied() {
+                    annotation
+                        .attachment_points_mut()
+                        .create_attachment_point_at_end(rect_to_quad_points(rect, page_height))
+                        .map_err(pdfium_err)?;
+                }
+                annotation
+                    .set_bounds(rect_to_pdf(union_rect, page_height))
+                    .map_err(pdfium_err)?;
+                if let Some(content) = contents.as_deref() {
+                    annotation.set_contents(content).map_err(pdfium_err)?;
+                }
+            }
+            AnnotationKind::Underline => {
+                let mut annotation = page
+                    .annotations_mut()
+                    .create_underline_annotation()
+                    .map_err(pdfium_err)?;
+                annotation
+                    .set_stroke_color(PdfColor::new(255, 187, 0, 255))
+                    .map_err(pdfium_err)?;
+                for rect in rects.iter().copied() {
+                    annotation
+                        .attachment_points_mut()
+                        .create_attachment_point_at_end(rect_to_quad_points(rect, page_height))
+                        .map_err(pdfium_err)?;
+                }
+                annotation
+                    .set_bounds(rect_to_pdf(union_rect, page_height))
+                    .map_err(pdfium_err)?;
+                if let Some(content) = contents.as_deref() {
+                    annotation.set_contents(content).map_err(pdfium_err)?;
+                }
+            }
+            AnnotationKind::Strikeout => {
+                let mut annotation = page
+                    .annotations_mut()
+                    .create_strikeout_annotation()
+                    .map_err(pdfium_err)?;
+                annotation
+                    .set_stroke_color(PdfColor::new(233, 30, 99, 255))
+                    .map_err(pdfium_err)?;
+                for rect in rects.iter().copied() {
+                    annotation
+                        .attachment_points_mut()
+                        .create_attachment_point_at_end(rect_to_quad_points(rect, page_height))
+                        .map_err(pdfium_err)?;
+                }
+                annotation
+                    .set_bounds(rect_to_pdf(union_rect, page_height))
+                    .map_err(pdfium_err)?;
+                if let Some(content) = contents.as_deref() {
+                    annotation.set_contents(content).map_err(pdfium_err)?;
+                }
+            }
+            AnnotationKind::Squiggly => {
+                let mut annotation = page
+                    .annotations_mut()
+                    .create_squiggly_annotation()
+                    .map_err(pdfium_err)?;
+                annotation
+                    .set_stroke_color(PdfColor::new(255, 111, 0, 255))
+                    .map_err(pdfium_err)?;
+                for rect in rects.iter().copied() {
+                    annotation
+                        .attachment_points_mut()
+                        .create_attachment_point_at_end(rect_to_quad_points(rect, page_height))
+                        .map_err(pdfium_err)?;
+                }
+                annotation
+                    .set_bounds(rect_to_pdf(union_rect, page_height))
+                    .map_err(pdfium_err)?;
+                if let Some(content) = contents.as_deref() {
+                    annotation.set_contents(content).map_err(pdfium_err)?;
+                }
+            }
+            AnnotationKind::Text => {
+                let mut annotation = page
+                    .annotations_mut()
+                    .create_text_annotation(contents.as_deref().unwrap_or("Nota"))
+                    .map_err(pdfium_err)?;
+                annotation
+                    .set_bounds(rect_to_pdf(union_rect, page_height))
+                    .map_err(pdfium_err)?;
+            }
+        }
+        session.doc.save_to_file(&session.path).map_err(pdfium_err)?;
+        self.tiles.invalidate_doc(key);
+        Ok(())
+    }
+
+    pub fn delete_annotation(&mut self, key: u32, annotation_id: &str) -> Result<(), RenderError> {
+        let (page_index, annotation_index) = annotation_id
+            .split_once(':')
+            .ok_or_else(|| RenderError::Pdfium("id de anotación inválido".into()))
+            .and_then(|(p, a)| {
+                let p = p
+                    .parse::<u16>()
+                    .map_err(|_| RenderError::Pdfium("id de anotación inválido".into()))?;
+                let a = a
+                    .parse::<usize>()
+                    .map_err(|_| RenderError::Pdfium("id de anotación inválido".into()))?;
+                Ok((p, a))
+            })?;
+
+        let session = self.doc_mut(key)?;
+        let mut page = session.doc.pages_mut().get(page_index).map_err(pdfium_err)?;
+        let annotation = page
+            .annotations()
+            .get(annotation_index)
+            .map_err(pdfium_err)?;
+        page.annotations_mut()
+            .delete_annotation(annotation)
+            .map_err(pdfium_err)?;
+        session.doc.save_to_file(&session.path).map_err(pdfium_err)?;
+        self.tiles.invalidate_doc(key);
+        Ok(())
+    }
+
+    pub fn export_annotations_xfdf(&self, key: u32, output: &Path) -> Result<(), RenderError> {
+        let doc = self.doc(key)?;
+        let mut writer = Writer::new_with_indent(Vec::new(), b' ', 2);
+        writer
+            .write_event(Event::Decl(quick_xml::events::BytesDecl::new(
+                "1.0",
+                Some("UTF-8"),
+                None,
+            )))
+            .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+
+        let mut xfdf = BytesStart::new("xfdf");
+        xfdf.push_attribute(("xmlns", "http://ns.adobe.com/xfdf/"));
+        xfdf.push_attribute(("xml:space", "preserve"));
+        writer
+            .write_event(Event::Start(xfdf))
+            .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+        writer
+            .write_event(Event::Start(BytesStart::new("annots")))
+            .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+
+        for page_index in 0..doc.pages().len() {
+            let page = doc.pages().get(page_index).map_err(pdfium_err)?;
+            let page_height = page.height().value;
+            for annotation in page.annotations().iter() {
+                let (tag, include_coords) = match annotation.annotation_type() {
+                    PdfPageAnnotationType::Highlight => ("highlight", true),
+                    PdfPageAnnotationType::Underline => ("underline", true),
+                    PdfPageAnnotationType::Strikeout => ("strikeout", true),
+                    PdfPageAnnotationType::Squiggly => ("squiggly", true),
+                    PdfPageAnnotationType::Text => ("text", false),
+                    _ => continue,
+                };
+                let bounds = annotation.bounds().map_err(pdfium_err)?;
+                let rect_value = format!(
+                    "{},{},{},{}",
+                    bounds.left().value,
+                    bounds.bottom().value,
+                    bounds.right().value,
+                    bounds.top().value
+                );
+                let mut start = BytesStart::new(tag);
+                let page_value = page_index.to_string();
+                start.push_attribute(("page", page_value.as_str()));
+                start.push_attribute(("rect", rect_value.as_str()));
+
+                let mut coords_value = String::new();
+                if include_coords {
+                    let quads: Vec<_> = annotation.attachment_points().iter().collect();
+                    if !quads.is_empty() {
+                        coords_value = quads
+                            .iter()
+                            .map(|q| {
+                                format!(
+                                    "{},{},{},{},{},{},{},{}",
+                                    q.x1.value,
+                                    q.y1.value,
+                                    q.x2.value,
+                                    q.y2.value,
+                                    q.x3.value,
+                                    q.y3.value,
+                                    q.x4.value,
+                                    q.y4.value
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(";");
+                        start.push_attribute(("coords", coords_value.as_str()));
+                    }
+                }
+
+                writer
+                    .write_event(Event::Start(start))
+                    .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+                if let Some(content) = annotation.contents() {
+                    writer
+                        .write_event(Event::Start(BytesStart::new("contents")))
+                        .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+                    writer
+                        .write_event(Event::Text(BytesText::from_escaped(xml_escape(&content))))
+                        .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+                    writer
+                        .write_event(Event::End(BytesEnd::new("contents")))
+                        .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+                }
+                writer
+                    .write_event(Event::End(BytesEnd::new(tag)))
+                    .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+            }
+        }
+
+        writer
+            .write_event(Event::End(BytesEnd::new("annots")))
+            .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("xfdf")))
+            .map_err(|e| RenderError::Pdfium(e.to_string()))?;
+
+        fs::write(output, writer.into_inner()).map_err(|e| RenderError::Pdfium(e.to_string()))
+    }
+
+    pub fn import_annotations_xfdf(&mut self, key: u32, input: &Path) -> Result<(), RenderError> {
+        let text = fs::read_to_string(input).map_err(|e| RenderError::Pdfium(e.to_string()))?;
+        let entries = parse_xfdf_entries(&text)?;
+        for entry in entries {
+            let page_height = self
+                .doc(key)?
+                .pages()
+                .get(entry.page_index)
+                .map_err(pdfium_err)?
+                .height()
+                .value;
+            let rects = entry
+                .rects
+                .into_iter()
+                .map(|r| RectPt {
+                    left: r.left,
+                    top: page_height - r.top,
+                    right: r.right,
+                    bottom: page_height - r.bottom,
+                })
+                .collect();
+            self.create_annotation(
+                key,
+                entry.page_index,
+                entry.kind,
+                rects,
+                entry.contents,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+fn parse_attr_value(
+    attrs: quick_xml::events::attributes::Attributes<'_>,
+    name: &[u8],
+) -> Option<String> {
+    attrs
+        .flatten()
+        .find(|a| a.key.as_ref() == name)
+        .map(|a| String::from_utf8_lossy(a.value.as_ref()).to_string())
+}
+
+fn parse_rect_list(values: &str) -> Vec<f32> {
+    values
+        .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+        .filter_map(|v| {
+            let t = v.trim();
+            if t.is_empty() {
+                None
+            } else {
+                t.parse::<f32>().ok()
+            }
+        })
+        .collect()
+}
+
+fn parse_xfdf_entries(xfdf: &str) -> Result<Vec<XfdfEntry>, RenderError> {
+    struct Pending {
+        kind: AnnotationKind,
+        page_index: u16,
+        rects: Vec<RectPt>,
+        contents: Option<String>,
+    }
+
+    let mut reader = Reader::from_str(xfdf);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    let mut entries = Vec::new();
+    let mut current: Option<Pending> = None;
+    let mut in_contents = false;
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let name = e.name().as_ref().to_vec();
+                let kind = match name.as_slice() {
+                    b"highlight" => Some(AnnotationKind::Highlight),
+                    b"underline" => Some(AnnotationKind::Underline),
+                    b"strikeout" => Some(AnnotationKind::Strikeout),
+                    b"squiggly" => Some(AnnotationKind::Squiggly),
+                    b"text" => Some(AnnotationKind::Text),
+                    b"contents" => {
+                        in_contents = true;
+                        None
+                    }
+                    _ => None,
+                };
+
+                if let Some(kind) = kind {
+                    let page_index = parse_attr_value(e.attributes(), b"page")
+                        .and_then(|v| v.parse::<u16>().ok())
+                        .unwrap_or(0);
+                    let rects = if let Some(coords) = parse_attr_value(e.attributes(), b"coords") {
+                        let values = parse_rect_list(&coords);
+                        values
+                            .chunks_exact(8)
+                            .map(|chunk| RectPt {
+                                left: chunk[0].min(chunk[2]).min(chunk[4]).min(chunk[6]),
+                                top: chunk[1].max(chunk[3]).max(chunk[5]).max(chunk[7]),
+                                right: chunk[0].max(chunk[2]).max(chunk[4]).max(chunk[6]),
+                                bottom: chunk[1].min(chunk[3]).min(chunk[5]).min(chunk[7]),
+                            })
+                            .collect()
+                    } else if let Some(rect) = parse_attr_value(e.attributes(), b"rect") {
+                        let values = parse_rect_list(&rect);
+                        if values.len() >= 4 {
+                            vec![RectPt {
+                                left: values[0],
+                                top: values[3],
+                                right: values[2],
+                                bottom: values[1],
+                            }]
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    };
+                    current = Some(Pending {
+                        kind,
+                        page_index,
+                        rects,
+                        contents: None,
+                    });
+                }
+            }
+            Ok(Event::Text(text)) => {
+                if in_contents {
+                    if let Some(ref mut pending) = current {
+                        pending.contents = Some(
+                            text.decode()
+                                .map_err(|e| RenderError::Pdfium(e.to_string()))?
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            Ok(Event::End(e)) => {
+                if e.name().as_ref() == b"contents" {
+                    in_contents = false;
+                }
+                let done = matches!(
+                    e.name().as_ref(),
+                    b"highlight" | b"underline" | b"strikeout" | b"squiggly" | b"text"
+                );
+                if done {
+                    if let Some(pending) = current.take() {
+                        if !pending.rects.is_empty() {
+                            entries.push(XfdfEntry {
+                                kind: pending.kind,
+                                page_index: pending.page_index,
+                                rects: pending.rects,
+                                contents: pending.contents,
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(RenderError::Pdfium(format!("XFDF inválido: {e}"))),
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(entries)
 }
 
 #[cfg(test)]
