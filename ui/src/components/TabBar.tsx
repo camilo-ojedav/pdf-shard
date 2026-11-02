@@ -22,7 +22,14 @@ export function TabBar({ onOpenAnother }: TabBarProps) {
           onClick={() => setActiveTab(t.id)}
           title={t.path}
         >
-          <span className="tab-title">{fileTitle(t.path)}</span>
+          <span className="tab-title">
+            {t.dirty && (
+              <span className="tab-dirty" title={S.archivo.modificado} aria-label={S.archivo.modificado}>
+                •{" "}
+              </span>
+            )}
+            {fileTitle(t.path)}
+          </span>
           <button
             className="tab-close"
             title={S.visor.cerrarPestana}

@@ -3,16 +3,25 @@ import { S } from "../strings/es";
 import { fileTitle, useDocuments, type DocumentTab, type SidebarPanel } from "../state/document";
 import { useTheme } from "../state/theme";
 import { isAndroid } from "../lib/platform";
-import { printDocument } from "../lib/tauri";
+import { printDocument, type MarkupKind } from "../lib/tauri";
+
+const MARKUP_TOOLS: { kind: MarkupKind; label: string; glyph: string }[] = [
+  { kind: "highlight", label: S.anotar.resaltar, glyph: "🖍" },
+  { kind: "underline", label: S.anotar.subrayar, glyph: "U̲" },
+  { kind: "strikeout", label: S.anotar.tachar, glyph: "S̶" },
+  { kind: "squiggly", label: S.anotar.ondulado, glyph: "≈" },
+];
 
 interface ToolbarProps {
   tab: DocumentTab | null;
   sidebar: SidebarPanel;
   onToggleSidebar: (panel: Exclude<SidebarPanel, null>) => void;
   onOpen: () => void;
+  onSave: () => void;
+  onSaveAs: () => void;
 }
 
-export function Toolbar({ tab, sidebar, onToggleSidebar, onOpen }: ToolbarProps) {
+export function Toolbar({ tab, sidebar, onToggleSidebar, onOpen, onSave, onSaveAs }: ToolbarProps) {
   const [recentOpen, setRecentOpen] = useState(false);
   const recents = useDocuments((s) => s.recents);
   const openPath = useDocuments((s) => s.openPath);
@@ -23,6 +32,9 @@ export function Toolbar({ tab, sidebar, onToggleSidebar, onOpen }: ToolbarProps)
   const zoomIn = useDocuments((s) => s.zoomIn);
   const zoomOut = useDocuments((s) => s.zoomOut);
   const openSearch = useDocuments((s) => s.openSearch);
+  const annotateSelection = useDocuments((s) => s.annotateSelection);
+  const tool = useDocuments((s) => s.tool);
+  const setTool = useDocuments((s) => s.setTool);
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
 
@@ -94,6 +106,12 @@ export function Toolbar({ tab, sidebar, onToggleSidebar, onOpen }: ToolbarProps)
           >
             {S.panel.miniaturas}
           </button>
+          <button
+            onClick={() => onToggleSidebar("annotations")}
+            className={sidebar === "annotations" ? "active" : ""}
+          >
+            {S.panel.anotaciones}
+          </button>
 
           <span className="sep" />
           <button
@@ -136,6 +154,36 @@ export function Toolbar({ tab, sidebar, onToggleSidebar, onOpen }: ToolbarProps)
             onClick={() => setZoomMode(tab.id, { kind: "fit-page" })}
           >
             ⬚
+          </button>
+
+          <span className="sep" />
+          {MARKUP_TOOLS.map((m) => (
+            <button
+              key={m.kind}
+              title={tab.selection ? m.label : `${m.label} — ${S.anotar.seleccionaTexto}`}
+              aria-label={m.label}
+              disabled={!tab.selection}
+              // preventDefault en mousedown: que el clic no le quite el foco
+              // ni borre la selección antes de aplicarla.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => void annotateSelection(tab.id, m.kind)}
+            >
+              {m.glyph}
+            </button>
+          ))}
+          <button
+            title={S.anotar.notaAyuda}
+            className={tool === "note" ? "active" : ""}
+            aria-pressed={tool === "note"}
+            onClick={() => setTool(tool === "note" ? "select" : "note")}
+          >
+            {S.anotar.nota}
+          </button>
+          <button onClick={onSave} disabled={!tab.dirty} title={`${S.archivo.guardar} (Ctrl+S)`}>
+            {S.archivo.guardar}
+          </button>
+          <button onClick={onSaveAs} title={`${S.archivo.guardarComo} (Ctrl+Shift+S)`}>
+            {S.archivo.guardarComo}
           </button>
 
           <span className="sep" />

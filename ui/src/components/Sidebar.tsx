@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { OutlineNode } from "../lib/tauri";
 import { tileUrl } from "../lib/protocol";
+import { AnnotationsPanel } from "./AnnotationsPanel";
 import { S } from "../strings/es";
 import { useDocuments, type DocumentTab, type SidebarPanel } from "../state/document";
 
@@ -47,7 +48,7 @@ function Thumbnails({ tab }: { tab: DocumentTab }) {
             onClick={() => goToPage(tab.id, i + 1)}
           >
             <img
-              src={tileUrl(tab.id, i, THUMB_WIDTH_PX)}
+              src={tileUrl(tab.id, i, THUMB_WIDTH_PX, tab.revision)}
               alt={S.visor.paginaDe(i + 1, tab.pageCount)}
               style={{ width: THUMB_WIDTH_PX, height: THUMB_WIDTH_PX * aspect }}
               loading="lazy"
@@ -72,7 +73,13 @@ export function Sidebar({ tab, panel, onClose }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <span>{panel === "outline" ? S.panel.marcadores : S.panel.miniaturas}</span>
+        <span>
+          {panel === "outline"
+            ? S.panel.marcadores
+            : panel === "thumbnails"
+              ? S.panel.miniaturas
+              : S.panel.anotaciones}
+        </span>
         <button onClick={onClose} title={S.panel.cerrarPanel}>
           ×
         </button>
@@ -85,6 +92,7 @@ export function Sidebar({ tab, panel, onClose }: SidebarProps) {
             <OutlineTree tab={tab} nodes={tab.outline} />
           ))}
         {panel === "thumbnails" && <Thumbnails tab={tab} />}
+        {panel === "annotations" && <AnnotationsPanel tab={tab} />}
       </div>
     </aside>
   );

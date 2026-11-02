@@ -61,6 +61,23 @@ export interface TextSelectionResult {
   rects: RectPt[];
 }
 
+export type AnnotationKind = "highlight" | "underline" | "strikeout" | "squiggly" | "text";
+
+/** Tipos de marcado de texto (se crean sobre una selección). */
+export type MarkupKind = Exclude<AnnotationKind, "text">;
+
+export interface Annotation {
+  /** `"<página>:<índice>"`; vale hasta la siguiente mutación del documento. */
+  id: string;
+  page_index: number;
+  kind: AnnotationKind;
+  rects: RectPt[];
+  contents: string | null;
+  author: string | null;
+  /** `#RRGGBB`, si se conoce. */
+  color: string | null;
+}
+
 export interface RecentEntry {
   path: string;
   last_opened_unix_ms: number;
@@ -108,4 +125,52 @@ export function clearRecentDocuments(): Promise<void> {
 
 export function printDocument(path: string): Promise<void> {
   return invoke("print_document", { path });
+}
+
+export function listAnnotations(id: number): Promise<Annotation[]> {
+  return invoke<Annotation[]>("list_annotations", { id });
+}
+
+/** Crea una anotación y devuelve la lista actualizada del documento. */
+export function createAnnotation(
+  id: number,
+  pageIndex: number,
+  kind: AnnotationKind,
+  rects: RectPt[],
+  contents?: string,
+  color?: string,
+): Promise<Annotation[]> {
+  return invoke<Annotation[]>("create_annotation", {
+    id,
+    pageIndex,
+    kind,
+    rects,
+    contents: contents && contents.length > 0 ? contents : null,
+    color: color ?? null,
+  });
+}
+
+export function setAnnotationContents(
+  id: number,
+  annotationId: string,
+  contents: string,
+): Promise<Annotation[]> {
+  return invoke<Annotation[]>("set_annotation_contents", { id, annotationId, contents });
+}
+
+export function deleteAnnotation(id: number, annotationId: string): Promise<Annotation[]> {
+  return invoke<Annotation[]>("delete_annotation", { id, annotationId });
+}
+
+export function exportAnnotationsXfdf(id: number, path: string): Promise<void> {
+  return invoke("export_annotations_xfdf", { id, path });
+}
+
+export function importAnnotationsXfdf(id: number, path: string): Promise<Annotation[]> {
+  return invoke<Annotation[]>("import_annotations_xfdf", { id, path });
+}
+
+/** Guarda el documento (en `path` = "Guardar como") y devuelve la ruta final. */
+export function saveDocument(id: number, path?: string): Promise<string> {
+  return invoke<string>("save_document", { id, path: path ?? null });
 }
