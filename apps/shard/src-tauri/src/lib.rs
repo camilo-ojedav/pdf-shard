@@ -1,6 +1,7 @@
 //! Shell Tauri de PDF SHARD (PLAN.md §5).
 //! M1: visor completo — apertura con contraseña, outline, búsqueda de texto,
-//! selección/copia, recientes e impresión (desktop). PDFium no es
+//! selección/copia, recientes e impresión (desktop). M2: anotaciones
+//! (crear/editar/borrar, guardar, XFDF). PDFium no es
 //! thread-safe, así que un hilo dedicado es dueño del `Renderer` y atiende
 //! trabajos por canal; cada operación se manda como un closure (`Job`) para
 //! no repetir boilerplate de enum por cada comando nuevo.
@@ -10,8 +11,8 @@ use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use core_model::{
-    DocumentInfo, OpenError, OpenErrorKind, OutlineNode, PageSize, RecentEntry, RectPt, SearchHit,
-    SearchResults, TextSelection,
+    Annotation, AnnotationKind, DocumentInfo, OpenError, OpenErrorKind, OutlineNode, PageSize,
+    RecentEntry, RectPt, SearchHit, SearchResults, TextSelection,
 };
 use core_render::{RenderError, Renderer};
 use tauri::http::{header::CONTENT_TYPE, Response, StatusCode};
@@ -120,6 +121,50 @@ fn convert_search_results(r: core_render::SearchResults) -> SearchResults {
     }
 }
 
+fn to_render_kind(kind: AnnotationKind) -> core_render::AnnotationKind {
+    match kind {
+        AnnotationKind::Highlight => core_render::AnnotationKind::Highlight,
+        AnnotationKind::Underline => core_render::AnnotationKind::Underline,
+        AnnotationKind::Strikeout => core_render::AnnotationKind::Strikeout,
+        AnnotationKind::Squiggly => core_render::AnnotationKind::Squiggly,
+        AnnotationKind::Text => core_render::AnnotationKind::Text,
+    }
+}
+
+fn from_render_kind(kind: core_render::AnnotationKind) -> AnnotationKind {
+    match kind {
+        core_render::AnnotationKind::Highlight => AnnotationKind::Highlight,
+        core_render::AnnotationKind::Underline => AnnotationKind::Underline,
+        core_render::AnnotationKind::Strikeout => AnnotationKind::Strikeout,
+        core_render::AnnotationKind::Squiggly => AnnotationKind::Squiggly,
+        core_render::AnnotationKind::Text => AnnotationKind::Text,
+    }
+}
+
+fn convert_annotations(items: Vec<core_render::Annotation>) -> Vec<Annotation> {
+    items
+        .into_iter()
+        .map(|a| Annotation {
+            id: a.id,
+            page_index: a.page_index,
+            kind: from_render_kind(a.kind),
+            rects: a.rects.into_iter().map(convert_rect).collect(),
+            contents: a.contents,
+            author: a.author,
+            color: a.color.map(core_render::color_to_hex),
+        })
+        .collect()
+}
+
+/// Autor que se graba en `/T` de las anotaciones nuevas: el usuario del SO
+/// (lo mismo que hace Acrobat si no se configuró una identidad).
+fn annotation_author() -> Option<String> {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .ok()
+        .filter(|u| !u.trim().is_empty())
+}
+
 #[tauri::command]
 fn open_document(
     path: String,
@@ -213,6 +258,149 @@ fn select_text(
             })
         })
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_annotations(id: u32, state: tauri::State<'_, AppState>) -> Result<Vec<Annotation>, String> {
+    state
+        .render
+        .call(move |r| r.list_annotations(id))
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+/// Crea una anotación y devuelve la lista actualizada (los ids cambian).
+#[tauri::command]
+fn create_annotation(
+    id: u32,
+    page_index: u16,
+    kind: AnnotationKind,
+    rects: Vec<RectPt>,
+    contents: Option<String>,
+    color: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Annotation>, String> {
+    let color = match color {
+        Some(hex) => {
+            Some(core_render::hex_to_color(&hex).ok_or_else(|| format!("color inválido: {hex}"))?)
+        }
+        None => None,
+    };
+    let new = core_render::NewAnnotation {
+        page_index,
+        kind: to_render_kind(kind),
+        rects: rects
+            .into_iter()
+            .map(|r| core_render::RectPt {
+                left: r.left,
+                top: r.top,
+                right: r.right,
+                bottom: r.bottom,
+            })
+            .collect(),
+        contents,
+        author: annotation_author(),
+        color,
+    };
+    state
+        .render
+        .call(move |r| {
+            r.create_annotation(id, new)?;
+            r.list_annotations(id)
+        })
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_annotation_contents(
+    id: u32,
+    annotation_id: String,
+    contents: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Annotation>, String> {
+    state
+        .render
+        .call(move |r| {
+            r.set_annotation_contents(id, &annotation_id, &contents)?;
+            r.list_annotations(id)
+        })
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_annotation(
+    id: u32,
+    annotation_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Annotation>, String> {
+    state
+        .render
+        .call(move |r| {
+            r.delete_annotation(id, &annotation_id)?;
+            r.list_annotations(id)
+        })
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn export_annotations_xfdf(
+    id: u32,
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let doc_name = state
+        .render
+        .call(move |r| r.document_path(id))
+        .map_err(|e| e.to_string())?
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned());
+    let xml = state
+        .render
+        .call(move |r| r.export_annotations_xfdf(id, doc_name.as_deref()))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&path, xml).map_err(|e| format!("no se pudo escribir {path}: {e}"))
+}
+
+#[tauri::command]
+fn import_annotations_xfdf(
+    id: u32,
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Annotation>, String> {
+    let xml = std::fs::read_to_string(&path).map_err(|e| format!("no se pudo leer {path}: {e}"))?;
+    state
+        .render
+        .call(move |r| {
+            r.import_annotations_xfdf(id, &xml)?;
+            r.list_annotations(id)
+        })
+        .map(convert_annotations)
+        .map_err(|e| e.to_string())
+}
+
+/// Guarda el documento (en `path` si se pasa: "Guardar como") y devuelve la
+/// ruta final. "Guardar como" lo registra además en recientes.
+#[tauri::command]
+fn save_document(
+    id: u32,
+    path: Option<String>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let save_as = path.is_some();
+    let saved = state
+        .render
+        .call(move |r| r.save(id, path.as_deref().map(Path::new)))
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .into_owned();
+    if save_as {
+        record_recent(&app, &saved);
+    }
+    Ok(saved)
 }
 
 const MAX_RECENTS: usize = 10;
@@ -412,6 +600,13 @@ pub fn run() {
             get_outline,
             search_text,
             select_text,
+            list_annotations,
+            create_annotation,
+            set_annotation_contents,
+            delete_annotation,
+            export_annotations_xfdf,
+            import_annotations_xfdf,
+            save_document,
             get_recent_documents,
             clear_recent_documents,
             print_document,
