@@ -543,8 +543,10 @@ dependencies = [
 name = "core-render"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "image",
  "pdfium-render",
+ "quick-xml",
  "serde_json",
  "thiserror 2.0.19",
 ]
