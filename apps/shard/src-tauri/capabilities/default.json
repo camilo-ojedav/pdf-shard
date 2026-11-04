@@ -2,5 +2,5 @@
   "identifier": "default",
   "description": "Capacidades base de la ventana principal",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "permissions": ["core:default", "core:window:allow-destroy", "dialog:default"]
 }

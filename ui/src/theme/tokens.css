@@ -457,6 +457,148 @@ body {
   cursor: text;
 }
 
+.page-overlay-note {
+  cursor: crosshair;
+}
+
+/* --- Anotaciones (M2) --- */
+
+.note-popover {
+  position: absolute;
+  z-index: 5;
+  width: 15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.note-popover textarea,
+.annot-edit textarea {
+  font: inherit;
+  width: 100%;
+  resize: vertical;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.annot-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.annot-actions button,
+.annot-xfdf button {
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  min-height: 2rem;
+  cursor: pointer;
+}
+
+.annot-actions button:hover:not(:disabled),
+.annot-xfdf button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.annot-xfdf button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.annot-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.annot-xfdf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.annot-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.annot-item {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.annot-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  min-height: 2rem;
+}
+
+.annot-swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 0.2rem;
+  border: 1px solid var(--line);
+  flex: none;
+}
+
+.annot-page {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.annot-text {
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.annot-text-empty,
+.annot-author {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.annot-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tab-dirty {
+  color: var(--accent);
+  font-weight: 800;
+}
+
 .highlight {
   position: absolute;
   background: var(--highlight);
@@ -602,7 +744,10 @@ body {
   .tab-close,
   .tab-add,
   .outline-item,
-  .start-recent-item {
+  .start-recent-item,
+  .annot-actions button,
+  .annot-xfdf button,
+  .annot-summary {
     min-height: 2.75rem;
     min-width: 2.75rem;
   }

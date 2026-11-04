@@ -89,6 +89,33 @@ pub struct TextSelection {
     pub rects: Vec<RectPt>,
 }
 
+/// Tipos de anotación soportados (subconjunto inicial de M2, PLAN.md §6.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnnotationKind {
+    Highlight,
+    Underline,
+    Strikeout,
+    Squiggly,
+    Text,
+}
+
+/// Una anotación del documento tal como la ve la UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Annotation {
+    /// `"<página>:<índice>"`; válido hasta la siguiente mutación del
+    /// documento (cada comando que muta devuelve la lista nueva).
+    pub id: String,
+    pub page_index: u16,
+    pub kind: AnnotationKind,
+    /// Un rectángulo por línea marcada (markup) o el del ícono (nota).
+    pub rects: Vec<RectPt>,
+    pub contents: Option<String>,
+    pub author: Option<String>,
+    /// `#RRGGBB`, si se conoce.
+    pub color: Option<String>,
+}
+
 /// Una entrada de la lista de documentos recientes, persistida entre
 /// sesiones (PLAN.md §6.1 / milestone M1: "recientes").
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +146,14 @@ mod tests {
         assert_eq!(back.id, 1);
         assert_eq!(back.page_count, 3);
         assert_eq!(back.page_sizes.len(), 1);
+    }
+
+    #[test]
+    fn annotation_kind_se_serializa_en_snake_case() {
+        let json = serde_json::to_string(&AnnotationKind::Strikeout).unwrap();
+        assert_eq!(json, "\"strikeout\"");
+        let back: AnnotationKind = serde_json::from_str("\"text\"").unwrap();
+        assert_eq!(back, AnnotationKind::Text);
     }
 
     #[test]

@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 
 use pdfium_render::prelude::*;
 
+mod annotations;
+mod xfdf;
+
+pub use annotations::{Annotation, AnnotationKind, NewAnnotation};
+pub use xfdf::{color_to_hex, hex_to_color};
+
 /// Cantidad máxima de resultados de búsqueda que se acumulan por documento
 /// (protección ante documentos patológicos o coincidencias masivas).
 const MAX_SEARCH_HITS: usize = 500;
@@ -156,6 +162,31 @@ fn classify_open_error(e: PdfiumError, password_supplied: bool) -> RenderError {
     }
 }
 
+/// Escribe `bytes` en `target` vía un temporal hermano + rename.
+fn write_atomically(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let file_name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "documento.pdf".into());
+    let tmp = dir.join(format!(".{file_name}.shard-tmp-{}", std::process::id()));
+    let result = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, target)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
 fn rect_top_left(r: PdfRect, page_height_pt: f32) -> RectPt {
     RectPt {
         left: r.left().value,
@@ -254,9 +285,18 @@ impl TileCache {
 /// proceso termine, así que la fuga es intencional y acotada.
 pub struct Renderer {
     pdfium: &'static Pdfium,
-    docs: HashMap<u32, PdfDocument<'static>>,
+    docs: HashMap<u32, DocumentSession>,
     next_key: u32,
     tiles: TileCache,
+}
+
+/// Un documento abierto: el `PdfDocument` más lo necesario para guardarlo.
+struct DocumentSession {
+    doc: PdfDocument<'static>,
+    /// Ruta actual del archivo (cambia tras "Guardar como").
+    path: PathBuf,
+    /// Hay cambios en memoria (anotaciones) que todavía no se guardaron.
+    dirty: bool,
 }
 
 impl Renderer {
@@ -298,7 +338,14 @@ impl Renderer {
         let page_count = doc.pages().len();
         let key = self.next_key;
         self.next_key += 1;
-        self.docs.insert(key, doc);
+        self.docs.insert(
+            key,
+            DocumentSession {
+                doc,
+                path: pdf.to_path_buf(),
+                dirty: false,
+            },
+        );
         Ok((key, page_count))
     }
 
@@ -310,7 +357,54 @@ impl Renderer {
     }
 
     fn doc(&self, key: u32) -> Result<&PdfDocument<'static>, RenderError> {
-        self.docs.get(&key).ok_or(RenderError::UnknownDocument(key))
+        self.docs
+            .get(&key)
+            .map(|s| &s.doc)
+            .ok_or(RenderError::UnknownDocument(key))
+    }
+
+    fn session_mut(&mut self, key: u32) -> Result<&mut DocumentSession, RenderError> {
+        self.docs
+            .get_mut(&key)
+            .ok_or(RenderError::UnknownDocument(key))
+    }
+
+    /// Ruta actual del archivo del documento.
+    pub fn document_path(&self, key: u32) -> Result<PathBuf, RenderError> {
+        self.docs
+            .get(&key)
+            .map(|s| s.path.clone())
+            .ok_or(RenderError::UnknownDocument(key))
+    }
+
+    /// `true` si el documento tiene cambios sin guardar.
+    pub fn is_dirty(&self, key: u32) -> Result<bool, RenderError> {
+        self.docs
+            .get(&key)
+            .map(|s| s.dirty)
+            .ok_or(RenderError::UnknownDocument(key))
+    }
+
+    /// Guarda el documento en `target` (o en su ruta actual si es `None`) y
+    /// lo marca como sin cambios. Escribe primero a un temporal en la misma
+    /// carpeta y luego lo renombra encima del destino: si algo falla a mitad
+    /// de camino el PDF original queda intacto. PDFium sigue leyendo los
+    /// objetos no modificados desde el archivo que abrió (en Unix el inodo
+    /// viejo sigue vivo; en Windows `std::fs::File` abre con
+    /// `FILE_SHARE_DELETE`, que permite reemplazarlo), así que guardar varias
+    /// veces sobre la misma ruta es seguro.
+    pub fn save(&mut self, key: u32, target: Option<&Path>) -> Result<PathBuf, RenderError> {
+        let session = self.session_mut(key)?;
+        let target = target
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| session.path.clone());
+        let bytes = session.doc.save_to_bytes().map_err(pdfium_err)?;
+        write_atomically(&target, &bytes).map_err(|e| {
+            RenderError::Pdfium(format!("no se pudo guardar {}: {e}", target.display()))
+        })?;
+        session.path = target.clone();
+        session.dirty = false;
+        Ok(target)
     }
 
     /// Tamaño en puntos PDF de cada página, en orden. Se usa para reservar
@@ -573,6 +667,130 @@ mod tests {
                 r.page_sizes_pt(999),
                 Err(RenderError::UnknownDocument(999))
             ));
+        });
+    }
+
+    fn temp_copy(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pdf-shard-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dst = dir.join(name);
+        std::fs::copy(corpus_path("01_texto_simple.pdf"), &dst).unwrap();
+        dst
+    }
+
+    fn pixel(png: &[u8], x: u32, y: u32) -> [u8; 4] {
+        let img = image::load_from_memory(png).unwrap().to_rgba8();
+        img.get_pixel(x, y).0
+    }
+
+    #[test]
+    fn anotaciones_crear_guardar_reabrir_y_xfdf() {
+        let original = temp_copy("anotado.pdf");
+        let destino = temp_copy("importado.pdf");
+        with_renderer(move |r| {
+            let (key, _) = r.open(&original, None).unwrap();
+            // Zona en blanco arriba a la izquierda de la página carta (612x792).
+            let zona = RectPt {
+                left: 400.0,
+                top: 20.0,
+                right: 580.0,
+                bottom: 40.0,
+            };
+            let antes = r.render_page_png(key, 0, 612).unwrap();
+            assert_eq!(pixel(&antes, 490, 30), [255, 255, 255, 255]);
+
+            r.create_annotation(
+                key,
+                NewAnnotation {
+                    page_index: 0,
+                    kind: AnnotationKind::Highlight,
+                    rects: vec![zona],
+                    contents: Some("resaltado".into()),
+                    author: Some("Camilo".into()),
+                    color: None,
+                },
+            )
+            .unwrap();
+            r.create_annotation(
+                key,
+                NewAnnotation {
+                    page_index: 0,
+                    kind: AnnotationKind::Text,
+                    rects: vec![RectPt {
+                        left: 20.0,
+                        top: 700.0,
+                        right: 40.0,
+                        bottom: 720.0,
+                    }],
+                    contents: Some("borrador".into()),
+                    author: None,
+                    color: None,
+                },
+            )
+            .unwrap();
+            assert!(r.is_dirty(key).unwrap());
+
+            // El resaltado se ve en el raster (apariencia generada por PDFium,
+            // la misma que usa Chrome): amarillo en el centro de la zona.
+            let despues = r.render_page_png(key, 0, 612).unwrap();
+            let [red, green, blue, _] = pixel(&despues, 490, 30);
+            assert!(
+                red > 200 && green > 200 && blue < 150,
+                "pixel {red},{green},{blue}"
+            );
+
+            let lista = r.list_annotations(key).unwrap();
+            assert_eq!(lista.len(), 2);
+            let h = &lista[0];
+            assert_eq!(h.kind, AnnotationKind::Highlight);
+            assert_eq!(h.author.as_deref(), Some("Camilo"));
+            assert_eq!(h.rects.len(), 1);
+            assert!((h.rects[0].left - 400.0).abs() < 0.01);
+            assert!((h.rects[0].top - 20.0).abs() < 0.01);
+            assert!((h.rects[0].bottom - 40.0).abs() < 0.01);
+
+            r.set_annotation_contents(key, &lista[1].id, "Nota & <prueba>\rlínea 2")
+                .unwrap();
+            assert_eq!(
+                r.list_annotations(key).unwrap()[1].contents.as_deref(),
+                Some("Nota & <prueba>\rlínea 2")
+            );
+
+            let xfdf_1 = r.export_annotations_xfdf(key, Some("anotado.pdf")).unwrap();
+
+            // Guardar y reabrir: las anotaciones quedan en el archivo.
+            r.save(key, None).unwrap();
+            assert!(!r.is_dirty(key).unwrap());
+            r.close(key);
+            let (key, _) = r.open(&original, None).unwrap();
+            assert_eq!(r.list_annotations(key).unwrap().len(), 2);
+            assert_eq!(
+                r.export_annotations_xfdf(key, Some("anotado.pdf")).unwrap(),
+                xfdf_1
+            );
+
+            // XFDF ida y vuelta sobre una copia limpia: mismo XFDF exportado.
+            let (key2, _) = r.open(&destino, None).unwrap();
+            assert_eq!(r.import_annotations_xfdf(key2, &xfdf_1).unwrap(), 2);
+            let xfdf_2 = r
+                .export_annotations_xfdf(key2, Some("anotado.pdf"))
+                .unwrap();
+            assert_eq!(
+                crate::xfdf::parse(&xfdf_2).unwrap(),
+                crate::xfdf::parse(&xfdf_1).unwrap()
+            );
+
+            // Borrar: el id del resaltado deja de existir y la nota pasa a 0:0.
+            r.delete_annotation(key2, "0:0").unwrap();
+            let lista = r.list_annotations(key2).unwrap();
+            assert_eq!(lista.len(), 1);
+            assert_eq!(lista[0].kind, AnnotationKind::Text);
+            assert!(r.delete_annotation(key2, "0:5").is_err());
+            // Una página fuera de rango invalida el XFDF completo.
+            let fuera = xfdf_1.replace("page=\"0\"", "page=\"9\"");
+            assert!(r.import_annotations_xfdf(key2, &fuera).is_err());
+            assert_eq!(r.list_annotations(key2).unwrap().len(), 1);
+            println!("{xfdf_1}");
         });
     }
 }

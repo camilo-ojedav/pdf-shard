@@ -59,10 +59,20 @@ interface PageProps {
   layout: PageLayout;
 }
 
+interface NoteDraft {
+  x: number;
+  y: number;
+  text: string;
+}
+
 function Page({ tab, layout }: PageProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const setSelection = useDocuments((s) => s.setSelection);
+  const tool = useDocuments((s) => s.tool);
+  const setTool = useDocuments((s) => s.setTool);
+  const addNote = useDocuments((s) => s.addNote);
+  const [note, setNote] = useState<NoteDraft | null>(null);
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const renderWidthPx = Math.round(layout.width * dpr);
 
@@ -89,6 +99,13 @@ function Page({ tab, layout }: PageProps) {
     if (!start) return;
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
+    if (tool === "note") {
+      // Herramienta nota: un toque/clic abre el editor en ese punto.
+      const p = toPagePoint(e.clientX, e.clientY);
+      setSelection(tab.id, null);
+      setNote({ x: p.x, y: p.y, text: "" });
+      return;
+    }
     if (Math.hypot(dx, dy) < MIN_DRAG_PX) {
       setSelection(tab.id, null);
       return;
@@ -114,13 +131,13 @@ function Page({ tab, layout }: PageProps) {
         <img
           className="page"
           style={{ width: layout.width, height: layout.height }}
-          src={tileUrl(tab.id, layout.index, renderWidthPx)}
+          src={tileUrl(tab.id, layout.index, renderWidthPx, tab.revision)}
           alt={S.visor.paginaDe(layout.index + 1, tab.pageCount)}
           draggable={false}
         />
         <div
           ref={overlayRef}
-          className="page-overlay"
+          className={tool === "note" ? "page-overlay page-overlay-note" : "page-overlay"}
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
         >
@@ -138,6 +155,40 @@ function Page({ tab, layout }: PageProps) {
               <div key={`sel${i}`} className="selection-rect" style={rectStyle(r, layout.zoom)} />
             ))}
         </div>
+        {note && (
+          <form
+            className="note-popover"
+            style={{
+              left: Math.min(note.x * layout.zoom, Math.max(0, layout.width - 240)),
+              top: note.y * layout.zoom,
+            }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const draft = note;
+              setNote(null);
+              setTool("select");
+              void addNote(tab.id, layout.index, draft.x, draft.y, draft.text);
+            }}
+          >
+            <textarea
+              autoFocus
+              rows={4}
+              placeholder={S.anotar.notaPlaceholder}
+              value={note.text}
+              onChange={(e) => setNote({ ...note, text: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setNote(null);
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) e.currentTarget.form?.requestSubmit();
+              }}
+            />
+            <div className="annot-actions">
+              <button type="button" onClick={() => setNote(null)}>
+                {S.anotar.cancelar}
+              </button>
+              <button type="submit">{S.anotar.agregar}</button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

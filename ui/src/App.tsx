@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { PasswordDialog } from "./components/PasswordDialog";
 import { PageList } from "./components/PageList";
 import { SearchBar } from "./components/SearchBar";
@@ -7,7 +8,8 @@ import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
 import { TabBar } from "./components/TabBar";
 import { Toolbar } from "./components/Toolbar";
-import { activeTab, useDocuments, type SidebarPanel } from "./state/document";
+import { activeTab, fileTitle, useDocuments, type SidebarPanel } from "./state/document";
+import { S } from "./strings/es";
 import { useTheme } from "./state/theme";
 
 export function App() {
@@ -22,6 +24,9 @@ export function App() {
   const setZoomMode = useDocuments((s) => s.setZoomMode);
   const openSearch = useDocuments((s) => s.openSearch);
   const closeSearch = useDocuments((s) => s.closeSearch);
+  const saveTab = useDocuments((s) => s.saveTab);
+  const tool = useDocuments((s) => s.tool);
+  const setTool = useDocuments((s) => s.setTool);
   const theme = useTheme((s) => s.theme);
   const [sidebar, setSidebar] = useState<SidebarPanel>(null);
 
@@ -43,11 +48,48 @@ export function App() {
     }
   }, [openPath]);
 
+  const guardar = useCallback(async () => {
+    if (tab?.dirty) await saveTab(tab.id);
+  }, [tab, saveTab]);
+
+  const guardarComo = useCallback(async () => {
+    if (!tab) return;
+    const destino = await save({
+      defaultPath: fileTitle(tab.path),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (destino) await saveTab(tab.id, destino);
+  }, [tab, saveTab]);
+
+  // Al cerrar la ventana con documentos modificados, se pide confirmación.
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+      const sucios = useDocuments.getState().tabs.filter((t) => t.dirty);
+      if (sucios.length === 0) return;
+      const descartar = await ask(
+        sucios.length === 1
+          ? S.sinGuardar.mensaje(fileTitle(sucios[0].path))
+          : S.sinGuardar.mensajeVarios(sucios.length),
+        {
+          title: S.sinGuardar.titulo,
+          kind: "warning",
+          okLabel: S.sinGuardar.descartar,
+          cancelLabel: S.sinGuardar.cancelar,
+        },
+      );
+      if (!descartar) event.preventDefault();
+    });
+    return () => {
+      void unlisten.then((f) => f());
+    };
+  }, []);
+
   function toggleSidebarPanel(panel: Exclude<SidebarPanel, null>) {
     setSidebar((cur) => (cur === panel ? null : panel));
   }
 
-  // Atajos de teclado (M1: Ctrl+O/F/W, Ctrl+Tab, +/-, Ctrl+0, Ctrl+C, Av/RePág).
+  // Atajos de teclado (M1: Ctrl+O/F/W, Ctrl+Tab, +/-, Ctrl+0, Ctrl+C, Av/RePág;
+  // M2: Ctrl+S guardar, Ctrl+Shift+S guardar como, Esc sale de la herramienta nota).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
@@ -60,6 +102,11 @@ export function App() {
         return;
       }
       if (!tab) return;
+      if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void (e.shiftKey ? guardarComo() : guardar());
+        return;
+      }
       if (mod && e.key.toLowerCase() === "f") {
         e.preventDefault();
         openSearch(tab.id);
@@ -83,6 +130,10 @@ export function App() {
       }
       if (e.key === "Escape" && tab.search.open) {
         closeSearch(tab.id);
+        return;
+      }
+      if (e.key === "Escape" && tool !== "select") {
+        setTool("select");
         return;
       }
       if (mod && e.key.toLowerCase() === "c" && tab.selection) {
@@ -124,12 +175,23 @@ export function App() {
     zoomOut,
     setZoomMode,
     goToPage,
+    guardar,
+    guardarComo,
+    tool,
+    setTool,
   ]);
 
   return (
     <div className="app">
       <TabBar onOpenAnother={abrirDocumento} />
-      <Toolbar tab={tab} sidebar={sidebar} onToggleSidebar={toggleSidebarPanel} onOpen={abrirDocumento} />
+      <Toolbar
+        tab={tab}
+        sidebar={sidebar}
+        onToggleSidebar={toggleSidebarPanel}
+        onOpen={abrirDocumento}
+        onSave={() => void guardar()}
+        onSaveAs={() => void guardarComo()}
+      />
       {tab && <SearchBar tab={tab} />}
       <div className="body-row">
         {tab && <Sidebar tab={tab} panel={sidebar} onClose={() => setSidebar(null)} />}

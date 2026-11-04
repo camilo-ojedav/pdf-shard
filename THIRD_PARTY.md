@@ -6,6 +6,8 @@ PDF SHARD (GPL-3.0) se apoya en los siguientes componentes open source. Reglas c
 |---|---|---|---|
 | PDFium | BSD-3-Clause / Apache-2.0 | Linkeado (motor de render/texto/objetos/formularios) | Planificado (M0) |
 | pdfium-render | MIT / Apache-2.0 | Linkeado (bindings Rust) | Planificado (M0) |
+| quick-xml | MIT | Linkeado (lectura/escritura XFDF) | En uso (M2) |
+| chrono | MIT / Apache-2.0 | Linkeado (fechas de anotaciones PDF/XFDF) | En uso (M2) |
 | lopdf | MIT | Linkeado (estructura y escritura PDF) | Planificado (M3) |
 | qpdf | Apache-2.0 | Linkeado o CLI (cifrado, linearización, chequeo) | Planificado (M3) |
 | Tesseract | Apache-2.0 | Linkeado vía FFI (OCR) | Planificado (M5) |
